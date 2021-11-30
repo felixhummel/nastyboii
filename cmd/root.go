@@ -1,24 +1,10 @@
-/*
-Copyright © 2021 NAME HERE <EMAIL ADDRESS>
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
 package cmd
 
 import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 
@@ -29,28 +15,51 @@ import (
 )
 
 var Directory string
+var exitCode int
 
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "nastyboii",
 	Short: "reminds you of nasty stuff",
 	Run: func(cmd *cobra.Command, args []string) {
+		log.SetLevel(log.WarnLevel)
+		log.SetFormatter(&log.TextFormatter{
+			// double-click a repo and paste :)
+			ForceQuote: true,
+		})
+
+		wd, _ := os.Getwd()
+		log.WithFields(log.Fields{
+			"wd": wd,
+		}).Debug()
 		err := filepath.Walk(".", func(path_ string, info fs.FileInfo, err error) error {
+			// log.WithField("path", path_).Debug()
 			if err != nil {
 				fmt.Printf("prevent panic by handling failure accessing a path %q: %v\n", path_, err)
 				return err
 			}
-			if info.IsDir() {
-				name := info.Name()
-				repolog := log.WithFields(log.Fields{
-					"repo": name,
-				})
-				_, err := os.Stat(path.Join(name, ".git"))
-				if err != nil {
-					// debug log: "not a git repo: %s", name
-					return filepath.SkipDir
-				}
-				repolog.Info("found")
+			if !info.IsDir() {
+				return nil
+			}
+			name := info.Name()
+			repolog := log.WithFields(log.Fields{
+				"repo": path_,
+			})
+			_, err = os.Stat(path.Join(name, ".git"))
+			if err != nil {
+				repolog.Debug("not a git repo")
+				return nil
+			}
+			repolog.Info("found")
+			out, err := exec.Command("git", "-C", path_, "status", "-s").Output()
+			if err != nil {
+				log.Error(err)
+				return nil
+			}
+			if len(out) > 0 {
+				repolog.Debug(out)
+				repolog.Warn("nasty boii!")
+				exitCode = 1
 			}
 			return nil
 		})
@@ -58,6 +67,7 @@ var rootCmd = &cobra.Command{
 			fmt.Printf("error walking the path %q: %v\n", '.', err)
 			return
 		}
+		os.Exit(exitCode)
 	},
 }
 
